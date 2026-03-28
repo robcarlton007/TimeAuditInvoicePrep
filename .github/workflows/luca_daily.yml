@@ -1,0 +1,34 @@
+name: Luca Daily Audit
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'   # 11:00 UTC = 6:00 AM Eastern (EST). Adjust to '0 10 * * 1-5' for EDT (UTC-4).
+  workflow_dispatch:           # Manual trigger for testing
+
+jobs:
+  daily-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests anthropic
+
+      - name: Run Luca Daily
+        env:
+          AJERA_URL:             ${{ secrets.AJERA_URL }}
+          AJERA_USER:            ${{ secrets.AJERA_USER }}
+          AJERA_PASS:            ${{ secrets.AJERA_PASS }}
+          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_USER:            ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:    ${{ secrets.GMAIL_APP_PASSWORD }}
+          TWILIO_ACCOUNT_SID:    ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN:     ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM:  ${{ secrets.TWILIO_WHATSAPP_FROM }}
+        run: python luca_daily.py

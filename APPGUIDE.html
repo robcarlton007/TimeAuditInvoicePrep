@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Luca — Carlton Edwards Intelligence</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; max-width: 900px;
+         margin: 40px auto; background: #F8F6F2; color: #1A1A1A;
+         padding: 0 28px 80px; font-size: 15px; line-height: 1.65; }
+  h1   { color: #1A1A1A; font-size: 26px; font-weight: 700;
+         border-bottom: 2px solid #1A1A1A; padding-bottom: 10px; margin-bottom: 4px; }
+  h1 span { color: #967B65; font-weight: 400; font-size: 16px; margin-left: 12px; }
+  h2   { color: #1A1A1A; font-size: 17px; font-weight: 700;
+         margin-top: 40px; margin-bottom: 6px; }
+  h3   { color: #967B65; font-size: 15px; font-weight: 600; margin-top: 20px; }
+  hr   { border: none; border-top: 1px solid #D4C8BC; margin: 32px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th   { background: #1A1A1A; color: #F8F6F2; padding: 9px 14px; text-align: left;
+         font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+  td   { padding: 8px 14px; border-bottom: 1px solid #D4C8BC; }
+  tr:hover td { background: #EDE8E2; }
+  code { background: #EDE8E2; padding: 2px 6px; border-radius: 4px;
+         font-family: "Cascadia Code", "Consolas", monospace;
+         color: #2E2420; font-size: 13px; }
+  pre  { background: #1A1A1A; color: #F8F6F2; padding: 18px; border-radius: 8px;
+         overflow: auto; font-size: 13px; }
+  pre code { background: none; padding: 0; color: #F8F6F2; }
+  li   { margin: 5px 0; }
+  ul   { padding-left: 22px; }
+  strong { color: #1A1A1A; }
+  p    { margin: 6px 0 10px; }
+  .pill { display: inline-block; background: #EDE8E2; color: #967B65;
+          border: 1px solid #D4C8BC; border-radius: 12px;
+          padding: 2px 10px; font-size: 12px; font-weight: 600;
+          letter-spacing: 0.04em; margin-left: 8px; vertical-align: middle; }
+  .subtitle { color: #967B65; font-size: 15px; margin-top: 4px; margin-bottom: 32px; }
+</style>
+</head>
+<body>
+
+<h1>Luca <span>Carlton Edwards Intelligence</span></h1>
+<p class="subtitle">Timesheet Audit &amp; Daily Review System · March 2026</p>
+
+<h2>About the Name</h2>
+<p>This application is named in honor of <strong>Luca Pacioli</strong> (c. 1447–1517), a 15th-century Franciscan friar and mathematician widely regarded as the <em>"Father of Accounting."</em> The app icon is the <strong>rhombicuboctahedron</strong> from Pacioli's <em>De Divina Proportione</em> (1509), drawn by Leonardo da Vinci.</p>
+<p><em>Luca</em> carries that tradition forward: ensuring every hour of work is captured, coded correctly, and accounted for before a single invoice goes out the door.</p>
+
+<hr>
+
+<h2>How to Run an Audit</h2>
+<ol>
+  <li>Open <code>Luca.exe</code></li>
+  <li>Select a date range using the preset buttons or the <strong>From / To</strong> date pickers in the sidebar</li>
+  <li>Select studios — check/uncheck <strong>Asheville</strong>, <strong>Nashville</strong>, <strong>Memphis</strong></li>
+  <li>Click <strong>Run Audit</strong> — reference data is served from local cache; timesheets are fetched live</li>
+  <li>When complete, click <strong>Open Report</strong> to view results in your browser, or <strong>Print Report</strong> to print</li>
+</ol>
+
+<hr>
+
+<h2>Sidebar Controls</h2>
+<table>
+  <tr><th>Control</th><th>Description</th></tr>
+  <tr><td>Date presets</td><td>This Week / Last Week / 2 Weeks Ago / This Month / Last Month</td></tr>
+  <tr><td>From / To pickers</td><td>Manual date range entry</td></tr>
+  <tr><td>Asheville / Nashville / Memphis</td><td>Filter by studio; uncheck to exclude a location</td></tr>
+  <tr><td><strong>Sync Data</strong></td><td>Refresh local cache — employees, projects, phases, activities + 10 weeks of timesheet history</td></tr>
+  <tr><td><strong>Run Audit</strong></td><td>Runs the full audit; uses cached reference data, fetches live timesheets</td></tr>
+  <tr><td><strong>Open Report</strong></td><td>Opens the most recent HTML report in your browser</td></tr>
+  <tr><td><strong>Print Report</strong></td><td>Sends the report to your printer</td></tr>
+  <tr><td>About</td><td>App version and credits</td></tr>
+</table>
+
+<hr>
+
+<h2>Local Cache</h2>
+<p>Luca stores a local copy of Ajera reference data at <code>~/Documents/Luca/ajera_cache.json</code>. This cache is used for employees, projects, phases, activities, and the last <strong>10 weeks of timesheet history</strong>. It is refreshed on every Sync Data click and after every audit run. Reference data is considered stale after 24 hours.</p>
+<p>Most chat questions are answered instantly from the cache, with no API call needed.</p>
+
+<hr>
+
+<h2>What Gets Flagged</h2>
+
+<h3>Blocked — Project Entries Without Notes</h3>
+<p>Any <strong>project</strong> time entry with no description note is flagged and blocked from invoicing. PTO and overhead entries do not require notes.</p>
+
+<h3>Incomplete Days</h3>
+<p>Any Mon–Fri where an employee logged less than their daily minimum (default 8h / 40h week; exceptions in <code>luca_reference.json</code>). Shows hours logged, shortfall, current-week total, and prior-week total.</p>
+
+<h3>Full Overhead / General Days</h3>
+<p>Any day where 90% or more of an employee's hours were coded to overhead or general with no project work.</p>
+
+<h3>Missing Timesheet <span class="pill">automated mode</span></h3>
+<p>Employee has no entries at all for a prior business day. Triggers a personalized AI-written message to the employee with supervisor CC.</p>
+
+<h3>Escalations — Consecutive Missed Days <span class="pill">roadmap</span></h3>
+<p>Three escalation tiers based on consecutive missed days. Messages are AI-written fresh for each case — not scripted templates. See <code>LUCA.md</code> for tier definitions.</p>
+
+<h3>Spelling / Typo Detection <span class="pill">roadmap</span></h3>
+<p>Notes checked against a standard dictionary plus firm-specific whitelist. Flagged words highlighted in the report.</p>
+
+<hr>
+
+<h2>Report Layout</h2>
+<table>
+  <tr><th>Tab</th><th>Contents</th></tr>
+  <tr><td><strong>Flags</strong></td><td>All issues grouped by type — blocked entries, incomplete days, overhead days</td></tr>
+  <tr><td><strong>Teamwork</strong></td><td>Every collaborative entry across the team, organized by employee</td></tr>
+  <tr><td><strong>By Employee</strong></td><td>Full period per employee, day by day, with every entry and note</td></tr>
+  <tr><td><strong>By Project</strong></td><td>Every project with all employees, phases, activities, hours, and notes</td></tr>
+</table>
+
+<hr>
+
+<h2>Ask Luca — AI Chat</h2>
+<p>The <strong>Ask Luca</strong> panel sits at the bottom of the app window. Powered by <strong>Claude (Anthropic)</strong> with automatic fallback to <strong>Gemini (Google)</strong>.</p>
+
+<p>The chat is a <strong>persistent, scrollable session</strong> — history survives across questions and is auto-saved when the app closes. When you reopen the app, the prior session is restored.</p>
+
+<p><strong>Context LUCA has:</strong></p>
+<ul>
+  <li>Complete audit-period timesheet data (all flags, per-employee log, per-project log)</li>
+  <li>10 weeks of rolling timesheet history (for trend analysis)</li>
+  <li>Full active employee roster with studio and company assignments</li>
+  <li>Firm reference data: overhead code definitions, per-employee hour targets</li>
+  <li>Business rules, phase definitions, and billing confusion patterns (<code>luca_knowledge.yaml</code>)</li>
+  <li>Action log and learned playbook</li>
+</ul>
+
+<p><strong>Example questions:</strong></p>
+<ul>
+  <li><em>"Who has the most missing notes this week?"</em></li>
+  <li><em>"Is Emily's hours trend improving compared to last month?"</em></li>
+  <li><em>"Which projects have incomplete entries that could hold up invoicing?"</em></li>
+  <li><em>"What is the ProjectKey for the Greenway Park project?"</em></li>
+  <li><em>"List all active projects"</em></li>
+</ul>
+
+<hr>
+
+<h2>Action System — Fully Autonomous</h2>
+<p>LUCA detects action opportunities within its responses and <strong>executes them immediately</strong> — no admin initiation, no approval step. When an action is warranted:</p>
+<ol>
+  <li>LUCA generates the action inline in its response</li>
+  <li>Executes it automatically</li>
+  <li>Confirms in chat: <em>"Action executed — REMINDER / Emily Archer"</em></li>
+  <li>Logs to <code>luca_actions.json</code> and updates <code>luca_playbook.json</code></li>
+</ol>
+<p>All actions are logged and auditable. To record an outcome: <em>"Mark the reminder to Emily as resolved."</em></p>
+
+<hr>
+
+<h2>AI Models</h2>
+<table>
+  <tr><th>Role</th><th>Provider</th><th>Model</th></tr>
+  <tr><td>Primary</td><td>Anthropic (Claude)</td><td><code>claude-opus-4-6</code></td></tr>
+  <tr><td>Secondary fallback</td><td>Google (Gemini)</td><td><code>gemini-2.0-flash</code></td></tr>
+  <tr><td>Tertiary fallback</td><td>Local (Qwen / Ollama)</td><td><code>qwen2.5:7b</code> <span class="pill">planned</span></td></tr>
+</table>
+<p>Fallback is automatic and transparent — if Claude is unavailable, Gemini is tried without any user action required.</p>
+
+<hr>
+
+<h2>Automated Daily Mode <span class="pill">roadmap</span></h2>
+<p>When live, Luca runs automatically every morning at <strong>6:00 AM Eastern</strong> via GitHub Actions (cloud-hosted, free tier):</p>
+<ul>
+  <li>5:50 AM — Ajera reference data sync</li>
+  <li>6:00 AM — Pull prior day's timesheets → run audit → send AI-written notifications → deliver supervisor reports</li>
+</ul>
+<p>No machine at Carlton Edwards needs to be on. The workflow file is at <code>.github/workflows/luca_daily.yml</code>.</p>
+
+<hr>
+
+<h2>Supervisor Reports <span class="pill">roadmap</span></h2>
+<p>Each supervisor receives a daily AI-written report scoped to their studio only. Reports cover missing timesheets, incomplete hours, entries without notes, collaborative citations, and cross-reference status.</p>
+<table>
+  <tr><th>Supervisor</th><th>Studio</th></tr>
+  <tr><td>Rob Carlton</td><td>Asheville</td></tr>
+  <tr><td>Matt Zink</td><td>Nashville</td></tr>
+  <tr><td>Jeff Edwards</td><td>Memphis</td></tr>
+</table>
+
+<hr>
+
+<h2>Configuration Files</h2>
+<p>All config and output files are stored in <code>~/Documents/Luca/</code>.</p>
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>ajera_cache.json</code></td><td>Local Ajera data cache — employees, projects, phases, activities, 10 weeks of timesheets</td></tr>
+  <tr><td><code>luca_session.json</code></td><td>Persisted chat session — conversation history, audit context, last audit period</td></tr>
+  <tr><td><code>luca_config.json</code></td><td>Anthropic API key</td></tr>
+  <tr><td><code>luca_reference.json</code></td><td>Overhead codes, per-employee hour targets, billable target %</td></tr>
+  <tr><td><code>luca_actions.json</code></td><td>Running log of all actions executed</td></tr>
+  <tr><td><code>luca_playbook.json</code></td><td>Learned patterns: issue frequency, action types, outcomes</td></tr>
+  <tr><td><code>audit_YYYY-MM-DD.html</code></td><td>HTML report for each audit start date</td></tr>
+</table>
+
+<hr>
+
+<h2>API Connection</h2>
+<ul>
+  <li><strong>System:</strong> Deltek Ajera</li>
+  <li><strong>Endpoint:</strong> <code>https://ajera.com/V004613/AjeraAPI.ashx</code></li>
+  <li><strong>API User:</strong> ClaudeTime247 (read-only)</li>
+  <li><strong>Auth:</strong> Ajera session token (v1 for employees / org / projects; v2 for timesheets)</li>
+  <li><strong>Payroll week:</strong> Saturday–Friday (TimesheetDate = Friday; D1=Sat, D7=Fri)</li>
+</ul>
+
+<hr>
+
+<h2>Troubleshooting</h2>
+<p><strong>Timeout on monthly reports</strong> — Batches in groups of 10 with a 90-second timeout. Try again; usually succeeds on retry.</p>
+<p><strong>No timesheets found</strong> — Ajera keys timesheets to the Friday end-of-week. The app adjusts automatically.</p>
+<p><strong>Open Report button disabled</strong> — Run an audit first.</p>
+<p><strong>Ask Luca says "API key required"</strong> — Paste your Anthropic API key in the Credentials section of the sidebar.</p>
+<p><strong>Chat session lost after restart</strong> — Session is auto-saved on close to <code>luca_session.json</code>. If missing or corrupt, the session starts fresh.</p>
+
+<hr>
+
+<p><em>Luca — Built for Carlton Edwards with Claude · Anthropic · March 2026</em></p>
+
+</body>
+</html>

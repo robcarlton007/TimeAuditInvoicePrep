@@ -1,0 +1,384 @@
+# luca_knowledge.yaml
+# Luca — Firm Knowledge Base
+# Carlton Edwards Architecture + Carlton Edwards Construction (CEC)
+#
+# This file is the primary source of truth for business rules, phase definitions,
+# project type classifications, and common billing errors.
+# It is loaded into Luca's context at startup and used by the AI models
+# when evaluating timesheet entries and invoice review.
+#
+# Edit this file in any text editor. YAML format — indentation matters.
+# Reload Luca after changes. Last updated: March 2026
+# ──────────────────────────────────────────────────────────────────────────────
+
+firm:
+  name: Carlton Edwards
+  entities:
+    - id: CA_PA
+      full_name: Carlton Architecture PA
+      short_name: Carlton Architecture
+      type: architecture
+      location: Asheville NC
+      description: >
+        The architectural practice entity. Provides architectural design services,
+        construction documents, and construction administration under architect licensure.
+        Time coded here is architecture billable work.
+
+    - id: CE_PLLC
+      full_name: Carlton Edwards PLLC
+      short_name: Carlton Edwards
+      type: architecture
+      locations: [Nashville TN, Memphis TN]
+      description: >
+        The architectural practice entity for Nashville and Memphis studios.
+        Same scope as Carlton Architecture PA — architectural design, documents,
+        and construction administration under architect licensure.
+
+    - id: CEC
+      full_name: Carlton Edwards Construction
+      short_name: CEC
+      type: construction_management
+      description: >
+        The construction management / owner's representative entity.
+        CEC provides project management services on behalf of the construction
+        side of a project. This is NOT architecture work.
+        Time coded to a CEC project is construction management, not design.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PROJECT NAMING CONVENTION — CRITICAL FOR LUCA
+# ──────────────────────────────────────────────────────────────────────────────
+
+project_naming:
+  description: >
+    The same client may have two separate, active projects in Ajera simultaneously —
+    one for architecture work and one for CEC (construction management) work.
+    These are DIFFERENT contracts, DIFFERENT billing, DIFFERENT phases.
+    The CEC prefix is the definitive indicator.
+
+  rules:
+    - pattern: "No CEC prefix (e.g., 'Hanen Residence', 'Greenway Park')"
+      entity: Carlton Architecture PA or Carlton Edwards PLLC
+      work_type: Architecture — design, documents, construction administration
+      example_correct: >
+        Emily codes SD hours to 'Hanen Residence' because she is drawing
+        the schematic design as the architect of record.
+
+    - pattern: "CEC prefix (e.g., 'CEC Hanen', 'CEC Greenway')"
+      entity: Carlton Edwards Construction
+      work_type: Construction management / owner's representative / project oversight
+      example_correct: >
+        Rob codes hours to 'CEC Hanen' because he is managing the contractor
+        on behalf of the client, not performing architecture services.
+
+    - pattern: "Same client, both projects active simultaneously"
+      risk: HIGH — most common miscoding error
+      example: >
+        Mike and Ellen Hanen are both architecture clients AND CEC clients.
+        'Hanen Residence' = architecture contract.
+        'CEC Hanen' = construction management contract.
+        Hours must be coded to the correct entity based on the NATURE of the
+        work performed that day, not just the client name.
+
+  luca_instruction: >
+    When evaluating a timesheet entry, if the project name contains 'CEC',
+    the work described in the note must reflect construction management activities
+    (contractor coordination, site observation, RFI review, schedule management,
+    owner meetings re: construction). If the note describes design work
+    (drawing, modeling, specification writing, design decisions), flag it as
+    a potential miscoding — the employee may have intended the architecture project.
+    Conversely, if a project has no CEC prefix but the note describes construction
+    management activities, flag the inverse error.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# COMMON BILLING CONFUSION PATTERNS
+# ──────────────────────────────────────────────────────────────────────────────
+
+billing_confusions:
+  description: >
+    These are the three recurring billing errors observed across the firm.
+    Luca should actively watch for these patterns when reviewing timesheet notes.
+
+  patterns:
+
+    - id: confusion_01
+      name: CEC work coded to Architecture (or vice versa)
+      description: >
+        Employee performs construction management work but codes it to the
+        architecture project for the same client, or vice versa.
+      indicators_of_CM_work:
+        - "contractor coordination"
+        - "site visit / site observation"
+        - "RFI, submittal review"
+        - "schedule review, schedule update"
+        - "owner-contractor meeting"
+        - "punch list"
+        - "change order review"
+        - "pay application review"
+        - "project manager, PM role"
+      indicators_of_architecture_work:
+        - "design, drawing, modeling"
+        - "schematic, SD, DD, CD"
+        - "specification, spec writing"
+        - "design review, design decision"
+        - "permit, code review"
+        - "client design presentation"
+      flag_trigger: >
+        Note contains CM indicators but project has no CEC prefix, OR
+        note contains architecture indicators but project has CEC prefix.
+
+    - id: confusion_02
+      name: Interior Design coded to Construction Administration
+      description: >
+        Interior design selections, finish specifications, or FF&E work coded
+        to the CA phase rather than the ID phase or SD/DD.
+      indicators_of_ID_work:
+        - "finish selection, material selection"
+        - "tile, flooring, paint, wallcovering"
+        - "FF&E, furniture, fixtures"
+        - "interior design, ID review"
+        - "finish schedule"
+        - "sample review, material sample"
+      flag_trigger: >
+        Note contains ID indicators but entry is coded to CA phase.
+        Interior design work should be in SD, DD, or a dedicated ID phase —
+        not CA unless it is documenting field-verified finish conditions.
+
+    - id: confusion_03
+      name: Interior Design coded to CEC (or vice versa)
+      description: >
+        Interior design services confused with CEC project management services
+        for the same client.
+      flag_trigger: >
+        Note contains interior design indicators on a CEC-prefixed project, OR
+        note contains CEC/CM indicators on a project phase coded for interior design.
+        These are separate scopes and separate contracts.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PHASE DEFINITIONS
+# Standard phases used across Carlton Edwards projects.
+# Based on AIA phase structure and firm's owner-contractor agreements.
+# ──────────────────────────────────────────────────────────────────────────────
+
+phases:
+
+  - code: SD
+    name: Schematic Design
+    description: >
+      Preliminary design phase. Establishing overall design direction, massing,
+      space planning, adjacencies. Client presentations and approvals of concept.
+      Typical deliverables: site plan, floor plans, elevations, 3D massing studies.
+    typical_activities:
+      - Space planning and layout exploration
+      - Site analysis and response
+      - Preliminary structural and MEP coordination
+      - Design concept development and client review
+      - Zoning and code research
+      - Preliminary cost estimating
+    NOT_typical:
+      - Detailed construction specifications
+      - Contractor coordination
+      - Building permit submission
+      - Finish selections (unless design-driven concept)
+
+  - code: DD
+    name: Design Development
+    description: >
+      Refining and coordinating the approved schematic design. All systems
+      (structural, mechanical, electrical, plumbing) are coordinated and sized.
+      Preliminary specifications developed. Client approvals of refined design.
+    typical_activities:
+      - Refining floor plans, sections, elevations
+      - Coordinating with structural, MEP engineers
+      - Preliminary material and finish selections
+      - Door, window, hardware schedules
+      - Energy code compliance review
+      - Updated cost estimate
+    NOT_typical:
+      - Final permit-ready drawings
+      - Contractor bidding
+      - Site observation
+
+  - code: CD
+    name: Construction Documents
+    description: >
+      Producing full permit-ready and bid-ready construction documents.
+      Complete drawings and specifications for contractor bidding and permitting.
+    typical_activities:
+      - Production of permit drawings and specifications
+      - Final coordination with all engineers and consultants
+      - Permit submission and responses to plan review comments
+      - Bidding assistance, answering contractor questions
+      - Addenda preparation
+    NOT_typical:
+      - Design changes (unless owner-directed and documented)
+      - Site observation
+
+  - code: CA
+    name: Construction Administration
+    description: >
+      Architect's role during construction. Reviewing submittals, responding to RFIs,
+      site observation visits, reviewing pay applications, processing change orders.
+      The architect serves as the owner's representative during construction.
+    typical_activities:
+      - Site observation visits and field reports
+      - Submittal review (shop drawings, product data, samples)
+      - RFI responses
+      - Change order review and processing
+      - Pay application review and certification
+      - Substantial completion inspection and punch list
+      - Project closeout
+    NOT_typical:
+      - New design work (unless change-order driven)
+      - Interior design selections not previously specified
+      - CEC construction management activities (these go to CEC project)
+    important_distinction: >
+      CA is the ARCHITECT'S role during construction — it is oversight and
+      contract administration, not hands-on construction management.
+      CEC project management (owner's rep, contractor coordination,
+      schedule management) is a SEPARATE service on a SEPARATE project code.
+
+  - code: ID
+    name: Interior Design
+    description: >
+      Interior architecture and design services. Finish selections, FF&E,
+      interior elevations, millwork design, lighting design, material palettes.
+    typical_activities:
+      - Finish and material selection
+      - FF&E specification and procurement
+      - Interior elevations and details
+      - Millwork design
+      - Lighting design and fixture selection
+      - Color palette development
+      - Client presentations of interior selections
+
+  - code: PM
+    name: Project Management (CEC)
+    description: >
+      Carlton Edwards Construction project management services.
+      Owner's representative role during construction. Managing contractor
+      performance, schedule, budget, and communication on behalf of the client.
+    typical_activities:
+      - Contractor coordination and oversight
+      - Schedule management and reporting
+      - Budget tracking and reporting
+      - Owner-contractor meeting facilitation
+      - RFI and submittal routing (as owner's rep, not architect)
+      - Change order negotiation
+      - Pay application review (as owner's rep)
+    applies_to: CEC-prefixed projects only
+
+  - code: PRE
+    name: Pre-Design / Programming
+    description: >
+      Work performed prior to design commencement. Programming, site selection,
+      feasibility studies, zoning analysis, project budgeting.
+
+  - code: BID
+    name: Bidding / Negotiation
+    description: >
+      Assisting owner in contractor selection. Issuing bid documents,
+      conducting pre-bid meetings, receiving and analyzing bids, recommendation of award.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SCOPE EVALUATION FRAMEWORK
+# Luca uses this to evaluate whether a timesheet note fits the phase context
+# ──────────────────────────────────────────────────────────────────────────────
+
+scope_evaluation:
+  description: >
+    When reviewing a timesheet note, Luca should evaluate whether the described
+    work is consistent with the phase of the project being billed. A mismatch
+    between the work described and the phase billed may indicate a miscoding.
+
+  luca_instruction: >
+    For each timesheet entry:
+    1. Identify the project name and phase code
+    2. Read the note carefully
+    3. Compare the described activities against the phase's typical_activities list
+    4. If the activities clearly belong to a DIFFERENT phase (e.g., SD-type work
+       coded to CA, or CA-type work coded to SD), flag it with the suggested
+       correct phase
+    5. If a CEC vs. architecture confusion is possible, apply the CEC rules above
+    6. Note: Overlap is normal and acceptable — some activities span phases.
+       Only flag clear mismatches (e.g., "reviewed contractor submittals" coded to SD).
+
+  acceptable_overlap_examples:
+    - "Coordination with structural engineer" is normal in SD, DD, and CD
+    - "Client meeting" can occur in any phase
+    - "Code research" is relevant in SD, DD, and CD
+    - "Responding to contractor questions" in CD (bid phase) is fine
+
+  flag_worthy_mismatches:
+    - "Schematic design / exploring floor plan options" coded to CA
+    - "Reviewing contractor pay application" coded to SD or DD
+    - "Finish selection presentation" coded to CA (should be ID or DD)
+    - "Site observation visit" coded to SD (no construction yet)
+    - Construction management language on an architecture project code
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LOCAL MEMORY — CACHE STRATEGY
+# ──────────────────────────────────────────────────────────────────────────────
+
+local_cache:
+  description: >
+    Luca maintains a local cache of Ajera data so that core functions operate
+    even when the Ajera API is unavailable. The cache is refreshed daily at 5:50 AM.
+    All processes fall back to cached data if a live API call fails.
+
+  cache_file: "~/Documents/Luca/ajera_cache.json"
+
+  cached_data:
+    - employees: "Name, key, department, supervisor, role flags, email, phone"
+    - projects: "ProjectKey, ID, description, status, company"
+    - phases: "PhaseKey, ID, description, project association, status"
+    - activities: "ActivityKey, description"
+    - companies: "CompanyKey, description"
+    - departments: "DepartmentKey, name"
+
+  cache_staleness_warning_hours: 24
+  timesheet_history_weeks: 10
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LLM PROVIDER STRATEGY
+# ──────────────────────────────────────────────────────────────────────────────
+
+llm_providers:
+  primary:
+    provider: Claude (Anthropic)
+    model: claude-opus-4-6
+    use_case: All Ask Luca queries, supervisor reports, daily review messages
+    fallback_trigger: API overload (529), network failure, key invalid
+
+  secondary:
+    provider: Gemini (Google)
+    model: gemini-2.0-flash
+    use_case: Automatic fallback when Claude is unavailable
+    notes: >
+      Carlton Edwards is on Google Workspace team plan.
+      Gemini access billed through Google Cloud organization account.
+      Gemini 2.0 Flash has 1M token context window — entire audit history fits.
+    fallback_trigger: Gemini unavailable or key invalid
+
+  tertiary:
+    provider: Local LLM (Qwen via Ollama)
+    model: qwen2.5:7b (or larger if hardware supports)
+    use_case: Fully offline fallback — no internet required
+    status: PLANNED — not yet implemented
+    notes: >
+      Runs on local workstation via Ollama (ollama.ai).
+      No API key, no cost, no internet dependency.
+      Capability reduced vs cloud models but sufficient for
+      rule-based Q&A about local cached data.
+
+  rule_based_fallback:
+    description: >
+      When all LLM providers are unavailable, Luca answers factual questions
+      about the most recent audit data using pure Python logic.
+      No AI required. Instant. Works completely offline.
+    status: PLANNED

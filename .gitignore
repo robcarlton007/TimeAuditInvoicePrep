@@ -1,0 +1,39 @@
+# ── Build output ──────────────────────────────────────────────────────────────
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.spec.bak
+
+# ── Local data — never commit these ───────────────────────────────────────────
+# Cache and session files contain employee names, project keys, and API tokens
+*.json
+!email_config.json
+
+# Audit report output
+audit_*.html
+audit_*.txt
+raw_dump_*.csv
+
+# ── Credentials / secrets ─────────────────────────────────────────────────────
+.env
+*.env
+secrets.json
+luca_config.json
+
+# ── Large binaries ────────────────────────────────────────────────────────────
+# The logo PNG is 1.4 MB — commit a lower-res version if needed, or use Git LFS
+# luca_logo.png   ← uncomment this line if you want to exclude it
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Editor artifacts ──────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.bak
+*.bak2
+fix_fonts.py
