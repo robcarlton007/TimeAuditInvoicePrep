@@ -8,8 +8,8 @@ __pycache__/
 
 # ── Local data — never commit these ───────────────────────────────────────────
 # Cache and session files contain employee names, project keys, and API tokens
+# email_config.json contains live Gmail app password — keep excluded
 *.json
-!email_config.json
 
 # Audit report output
 audit_*.html
@@ -25,6 +25,7 @@ luca_config.json
 # ── Large binaries ────────────────────────────────────────────────────────────
 # The logo PNG is 1.4 MB — commit a lower-res version if needed, or use Git LFS
 # luca_logo.png   ← uncomment this line if you want to exclude it
+Gemini_Generated_Image_*.png
 
 # ── Windows ───────────────────────────────────────────────────────────────────
 Thumbs.db
@@ -36,4 +37,8 @@ $RECYCLE.BIN/
 .idea/
 *.bak
 *.bak2
+*.bak3
 fix_fonts.py
+rebuild_cache.py
+build_output.txt
+design_mockups/
