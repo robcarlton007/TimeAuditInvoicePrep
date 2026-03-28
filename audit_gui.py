@@ -237,122 +237,152 @@ def _timesheet_history_range():
     return start, today
 
 
-def sync_ajera_cache(progress_cb=None) -> dict:
-    """Fetch all Ajera reference data + timesheet history and save to local cache.
+def sync_ajera_cache(progress_cb=None, refresh_mode: str = "full") -> dict:
+    """Fetch Ajera reference data and maintain the rolling timesheet cache.
 
-    progress_cb: optional callable(str) for status updates during sync.
-    Returns the new cache dict.
+    refresh_mode:
+        "full"    — Fetch all reference data (employees, projects, phases,
+                    activities, companies, departments) PLUS all TS_HISTORY_WEEKS
+                    weeks of timesheets.  Used by the Sync Data button and the
+                    initial population run.
+        "partial" — Re-fetch only the last TS_REFRESH_WEEKS weeks of timesheets
+                    to catch retroactive employee changes.  Reference data is
+                    skipped on partial mode — the existing cache values are kept.
+                    Used by the daily automation and post-audit background refresh.
 
-    Fetches (v1 session): employees, employee details, companies, departments,
-    activities, projects, project phases.
-    Fetches (v2 session): last TS_HISTORY_WEEKS weeks of timesheet detail.
+    Rolling-window rule: weeks older than TS_HISTORY_WEEKS are always dropped
+    from cache["timesheet_weeks"] regardless of refresh_mode.
+
+    LLM note: entirely deterministic — pure data fetching and structured Python.
+    No AI involvement here.  The LLM is called separately for reasoning/narrative.
     """
     def _cb(msg):
         if progress_cb:
             progress_cb(msg)
         print(f"[CACHE SYNC] {msg}")
 
-    cache = {"last_synced": datetime.now().isoformat(), "sync_errors": []}
+    # Partial mode preserves existing weeks; full mode starts fresh
+    if refresh_mode == "partial":
+        cache = load_ajera_cache()
+        cache["sync_errors"] = []
+        cache.setdefault("timesheet_weeks", {})
+    else:
+        cache = {"last_synced": datetime.now().isoformat(),
+                 "sync_errors": [], "timesheet_weeks": {}}
 
-    # ── v1 session ────────────────────────────────────────────────────────────
-    t1 = login(1)
-    try:
-        _cb("Fetching employees…")
-        emp_list = get_employees(t1)
-        cache["employees"] = emp_list
-        _cb(f"  {len(emp_list)} employees")
+    # ── v1 session — reference data (full mode only) ──────────────────────────
+    if refresh_mode == "full":
+        t1 = login(1)
+        try:
+            _cb("Fetching employees…")
+            emp_list = get_employees(t1)
+            cache["employees"] = emp_list
+            _cb(f"  {len(emp_list)} employees")
 
-        _cb("Fetching employee details (roles, supervisors)…")
-        emp_keys = [e["EmployeeKey"] for e in emp_list if e.get("EmployeeKey")]
-        emp_detail = []
-        batch = 20
-        for i in range(0, len(emp_keys), batch):
-            chunk = emp_keys[i:i+batch]
-            try:
-                resp = api_post({"Method": "GetEmployees",
-                                 "SessionToken": t1,
-                                 "MethodArguments": {"RequestedEmployees": chunk}})
-                emp_detail.extend(resp.get("Content", {}).get("Employees", []))
-            except Exception as e:
-                cache["sync_errors"].append(f"GetEmployees batch {i}: {e}")
-        cache["employee_details"] = emp_detail
-        _cb(f"  {len(emp_detail)} employee detail records")
+            _cb("Fetching employee details (roles, supervisors)…")
+            emp_keys   = [e["EmployeeKey"] for e in emp_list if e.get("EmployeeKey")]
+            emp_detail = []
+            batch = 20
+            for i in range(0, len(emp_keys), batch):
+                chunk = emp_keys[i:i+batch]
+                try:
+                    resp = api_post({"Method": "GetEmployees",
+                                     "SessionToken": t1,
+                                     "MethodArguments": {"RequestedEmployees": chunk}})
+                    emp_detail.extend(resp.get("Content", {}).get("Employees", []))
+                except Exception as e:
+                    cache["sync_errors"].append(f"GetEmployees batch {i}: {e}")
+            cache["employee_details"] = emp_detail
+            _cb(f"  {len(emp_detail)} employee detail records")
 
-        _cb("Fetching companies…")
-        companies = get_companies(t1)
-        cache["companies"] = companies
-        _cb(f"  {len(companies)} companies")
+            _cb("Fetching companies…")
+            companies = get_companies(t1)
+            cache["companies"] = companies
+            _cb(f"  {len(companies)} companies")
 
-        _cb("Fetching departments…")
-        depts = get_departments(t1)
-        cache["departments"] = depts
-        _cb(f"  {len(depts)} departments")
+            _cb("Fetching departments…")
+            depts = get_departments(t1)
+            cache["departments"] = depts
+            _cb(f"  {len(depts)} departments")
 
-        _cb("Fetching activities…")
-        acts = get_activities(t1)
-        cache["activities"] = acts
-        _cb(f"  {len(acts)} activities")
+            _cb("Fetching activities…")
+            acts = get_activities(t1)
+            cache["activities"] = acts
+            _cb(f"  {len(acts)} activities")
 
-        _cb("Fetching projects…")
-        projects = get_project_list(t1)
-        cache["projects"] = projects
-        _cb(f"  {len(projects)} projects")
+            _cb("Fetching projects…")
+            projects = get_project_list(t1)
+            cache["projects"] = projects
+            _cb(f"  {len(projects)} projects")
 
-        _cb("Fetching project phases (this may take a moment)…")
-        proj_keys = [p["ProjectKey"] for p in projects if p.get("ProjectKey")]
-        proj_details = get_project_details(t1, proj_keys, batch_size=20)
-        # Extract phases from InvoiceGroups
-        phases = []
-        for proj in proj_details:
-            pkey = proj.get("ProjectKey")
-            pdesc = proj.get("Description", "")
-            pid   = proj.get("ID", "")
-            for ig in (proj.get("InvoiceGroups") or []):
-                for ph in (ig.get("Phases") or []):
-                    phases.append({
-                        "ProjectKey":   pkey,
-                        "ProjectDesc":  pdesc,
-                        "ProjectID":    pid,
-                        "PhaseKey":     ph.get("PhaseKey"),
-                        "PhaseID":      ph.get("ID", ""),
-                        "PhaseDesc":    ph.get("Description", ""),
-                        "PhaseStatus":  ph.get("Status", ""),
-                    })
-        cache["phases"] = phases
-        _cb(f"  {len(phases)} phases across {len(proj_details)} projects")
+            _cb("Fetching project phases (this may take a moment)…")
+            proj_keys    = [p["ProjectKey"] for p in projects if p.get("ProjectKey")]
+            proj_details = get_project_details(t1, proj_keys, batch_size=20)
+            phases = []
+            for proj in proj_details:
+                pkey  = proj.get("ProjectKey")
+                pdesc = proj.get("Description", "")
+                pid   = proj.get("ID", "")
+                for ig in (proj.get("InvoiceGroups") or []):
+                    for ph in (ig.get("Phases") or []):
+                        phases.append({
+                            "ProjectKey":   pkey,
+                            "ProjectDesc":  pdesc,
+                            "ProjectID":    pid,
+                            "PhaseKey":     ph.get("PhaseKey"),
+                            "PhaseID":      ph.get("ID", ""),
+                            "PhaseDesc":    ph.get("Description", ""),
+                            "PhaseStatus":  ph.get("Status", ""),
+                        })
+            cache["phases"] = phases
+            _cb(f"  {len(phases)} phases across {len(proj_details)} projects")
+            cache["last_synced"] = datetime.now().isoformat()
 
-    except Exception as e:
-        cache["sync_errors"].append(f"Fatal sync error: {e}")
-        _cb(f"ERROR: {e}")
-    finally:
-        logout(t1)
+        except Exception as e:
+            cache["sync_errors"].append(f"Reference data error: {e}")
+            _cb(f"ERROR: {e}")
+        finally:
+            logout(t1)
+    else:
+        _cb("Partial refresh — skipping reference data (keeping cached values).")
 
-    # ── v2 session — timesheet history ────────────────────────────────────────
-    ts_start, ts_end = _timesheet_history_range()
-    _cb(f"Fetching {TS_HISTORY_WEEKS}-week timesheet history ({ts_start} → {ts_end})…")
+    # ── v2 session — rolling timesheet window ─────────────────────────────────
+    # full  → fetch all TS_HISTORY_WEEKS (10) weeks
+    # partial → fetch only the last TS_REFRESH_WEEKS (4) weeks to catch retro edits
+    n_weeks = TS_HISTORY_WEEKS if refresh_mode == "full" else TS_REFRESH_WEEKS
+    fridays = history_fridays(n_weeks)
+    _cb(f"Updating timesheet cache — {refresh_mode} mode, {n_weeks} weeks "
+        f"({fridays[-1]} → {fridays[0]})…")
     t2 = login(2)
     try:
-        ts_list = get_timesheet_list(t2, ts_start, ts_end)
-        ts_keys = [t["Timesheet Key"] for t in ts_list if t.get("Timesheet Key")]
-        _cb(f"  {len(ts_keys)} timesheets found — fetching details…")
-        ts_details = get_timesheet_detail(t2, ts_keys, batch_size=10)
-        cache["timesheet_details"]      = ts_details
-        cache["timesheet_start"]        = str(ts_start)
-        cache["timesheet_end"]          = str(ts_end)
-        cache["timesheet_last_synced"]  = datetime.now().isoformat()
-        _cb(f"  {len(ts_details)} timesheet records cached ({ts_start} → {ts_end})")
-    except Exception as e:
-        cache["sync_errors"].append(f"Timesheet history error: {e}")
-        _cb(f"  Warning: timesheet history failed — {e}")
+        fetched = _fetch_weeks_into_cache(cache, fridays, t2, _cb)
+        _cb(f"  {fetched} timesheet records refreshed across {n_weeks} weeks")
+    except Exception as exc:
+        cache["sync_errors"].append(f"Timesheet history error: {exc}")
+        _cb(f"  Warning: timesheet refresh failed — {exc}")
     finally:
         logout(t2)
 
-    # Save to disk
+    # ── Enforce rolling window ─────────────────────────────────────────────────
+    dropped = _drop_old_weeks(cache, keep=TS_HISTORY_WEEKS)
+    if dropped:
+        _cb(f"  Rolling window: dropped {dropped} week(s) older than "
+            f"{TS_HISTORY_WEEKS} weeks")
+
+    # ── Metadata ──────────────────────────────────────────────────────────────
+    n_cached = len(cache.get("timesheet_weeks", {}))
+    cache["ts_window_weeks"]   = TS_HISTORY_WEEKS
+    cache["ts_refresh_weeks"]  = TS_REFRESH_WEEKS
+    cache["ts_weeks_in_cache"] = n_cached
+    cache["ts_last_synced"]    = datetime.now().isoformat()
+
+    # ── Persist ───────────────────────────────────────────────────────────────
     try:
-        AJERA_CACHE.write_text(json.dumps(cache, indent=2, default=str), encoding="utf-8")
-        _cb(f"Cache saved → {AJERA_CACHE}")
-    except Exception as e:
-        _cb(f"Failed to save cache: {e}")
+        AJERA_CACHE.write_text(
+            json.dumps(cache, indent=2, default=str), encoding="utf-8")
+        _cb(f"Cache saved → {AJERA_CACHE}  ({n_cached} weeks in rolling window)")
+    except Exception as exc:
+        _cb(f"Failed to save cache: {exc}")
 
     return cache
 
@@ -371,6 +401,128 @@ def get_timesheet_detail(token, keys, batch_size=10):
                          "MethodArguments":{"RequestedTimesheets":chunk}})
         results.extend(resp.get("Content",{}).get("Timesheets",[]))
     return results
+
+# ── PAYROLL-WEEK & ROLLING-CACHE HELPERS ──────────────────────────────────────
+# All deterministic — no LLM involvement.
+# Ajera payroll week: Saturday (D1) through Friday (D7).
+# TimesheetDate in Ajera == the Friday that closes each payroll week.
+
+def payroll_friday_of(d) -> date:
+    """Return the Friday that closes the Sat-Fri payroll week containing d."""
+    return d + timedelta(days=(4 - d.weekday()) % 7)
+
+
+def payroll_friday(offset: int = 0) -> date:
+    """Friday of a recent payroll week.
+    offset=0 = current week, offset=-1 = last week, offset=-(n-1) = n weeks ago."""
+    return payroll_friday_of(date.today()) + timedelta(weeks=offset)
+
+
+def history_fridays(n: int = TS_HISTORY_WEEKS) -> list:
+    """Return list of the n most recent payroll-week Fridays, newest first."""
+    base = payroll_friday(0)
+    return [base + timedelta(weeks=-i) for i in range(n)]
+
+
+def _fetch_weeks_into_cache(cache: dict, fridays: list, token2, cb) -> int:
+    """Fetch one payroll week of timesheets per Friday into cache["timesheet_weeks"].
+
+    Operates inside an already-open v2 Ajera session token.
+    Each week is keyed by its Friday date string "YYYY-MM-DD".
+    Empty weeks are stored with timesheets=[] so we know they were checked.
+    Returns total number of timesheet records stored across all weeks.
+    """
+    cache.setdefault("timesheet_weeks", {})
+    total = 0
+    for friday in fridays:
+        friday_str = str(friday)
+        week_start = friday - timedelta(days=6)     # preceding Saturday
+        try:
+            ts_list   = get_timesheet_list(token2, week_start, friday)
+            ts_keys   = [t["Timesheet Key"] for t in ts_list
+                         if t.get("Timesheet Key")]
+            ts_detail = (get_timesheet_detail(token2, ts_keys, batch_size=10)
+                         if ts_keys else [])
+            cache["timesheet_weeks"][friday_str] = {
+                "fetched_at": datetime.now().isoformat(),
+                "timesheets": ts_detail,
+            }
+            total += len(ts_detail)
+            cb(f"    {week_start} → {friday}: {len(ts_detail)} records")
+        except Exception as exc:
+            cb(f"    Week {friday_str}: ERROR — {exc}")
+    return total
+
+
+def _drop_old_weeks(cache: dict, keep: int = TS_HISTORY_WEEKS) -> int:
+    """Remove weeks older than `keep` payroll weeks from cache["timesheet_weeks"].
+
+    Enforces the rolling window so storage stays bounded at TS_HISTORY_WEEKS weeks.
+    ISO date strings (YYYY-MM-DD) sort chronologically as plain strings — no
+    date parsing needed for the comparison.
+    Returns count of weeks removed.
+    """
+    weeks = cache.get("timesheet_weeks", {})
+    if not weeks:
+        return 0
+    cutoff_str = str(payroll_friday(-(keep - 1)))   # oldest Friday we keep
+    to_drop    = [k for k in list(weeks) if k < cutoff_str]
+    for k in to_drop:
+        del weeks[k]
+    return len(to_drop)
+
+
+def ts_details_from_cache(cache: dict, start: date, end: date) -> list:
+    """Return a flat list of timesheet records covering [start, end].
+
+    Reads from the new week-keyed cache["timesheet_weeks"].  Falls back to
+    the legacy flat "timesheet_details" key for pre-migration cache files.
+    Includes all records from weeks whose Sat-Fri window overlaps [start, end].
+    Pure deterministic Python — no LLM involvement.
+    """
+    weeks = cache.get("timesheet_weeks", {})
+    if weeks:
+        records = []
+        for friday_str, week_data in weeks.items():
+            try:
+                friday = date.fromisoformat(friday_str)
+            except ValueError:
+                continue
+            week_sat = friday - timedelta(days=6)
+            if friday >= start and week_sat <= end:    # inclusive overlap
+                records.extend(week_data.get("timesheets", []))
+        return records
+    return cache.get("timesheet_details", [])          # legacy fallback
+
+
+def weeks_covered_by_cache(cache: dict) -> tuple:
+    """Return (earliest_date, latest_date) spanned by the timesheet cache.
+
+    earliest_date = Saturday of the oldest cached week.
+    latest_date   = Friday of the most recent cached week.
+    Returns (None, None) if no timesheet data is present.
+    """
+    weeks = cache.get("timesheet_weeks", {})
+    if weeks:
+        fridays = []
+        for k in weeks:
+            try:
+                fridays.append(date.fromisoformat(k))
+            except ValueError:
+                pass
+        if fridays:
+            return min(fridays) - timedelta(days=6), max(fridays)
+        return None, None
+    # Legacy fallback — old flat structure
+    s = cache.get("timesheet_start")
+    e = cache.get("timesheet_end")
+    if s and e:
+        try:
+            return date.fromisoformat(s), date.fromisoformat(e)
+        except ValueError:
+            pass
+    return None, None
+
 
 # ── DATE UTILS ────────────────────────────────────────────────────────────────
 
@@ -1946,24 +2098,20 @@ def _execute_ajera_tool(tool_name, tool_input):
         if ts_end < ts_start:
             return "ERROR: end_date is before start_date."
 
-        # ── Cache-first: use local data if the range is already stored ──────
-        _cache      = load_ajera_cache()
-        _c_start    = _cache.get("timesheet_start", "")
-        _c_end      = _cache.get("timesheet_end",   "")
-        _c_details  = _cache.get("timesheet_details", [])
-        _c_emps     = _cache.get("employees", [])
+        # ── Cache-first: serve from rolling local cache if range is covered ──
+        # Deterministic lookup — no LLM involvement.
+        _cache  = load_ajera_cache()
+        _c_emps = _cache.get("employees", [])
 
         _use_cache = False
-        if _c_details and _c_start and _c_end:
-            try:
-                _cs = datetime.strptime(_c_start, "%Y-%m-%d").date()
-                _ce = datetime.strptime(_c_end,   "%Y-%m-%d").date()
-                _use_cache = (_cs <= ts_start) and (_ce >= ts_end)
-            except ValueError:
-                pass
+        _earliest, _latest = weeks_covered_by_cache(_cache)
+        if (_earliest is not None
+                and _earliest <= ts_start
+                and _latest   >= ts_end):
+            _use_cache = True   # week-keyed cache fully covers the requested range
 
         if _use_cache:
-            detailed = _c_details
+            detailed = ts_details_from_cache(_cache, ts_start, ts_end)
             ek_name  = {e["EmployeeKey"]:
                         f"{e.get('FirstName','')} {e.get('LastName','')}".strip()
                         for e in _c_emps}
@@ -3854,7 +4002,7 @@ class AuditApp(ctk.CTk):
                 self.after(0, lambda m=msg: self.cache_age_lbl.configure(
                     text=m[:55] + "…" if len(m) > 55 else m))
             try:
-                sync_ajera_cache(progress_cb=_cb)
+                sync_ajera_cache(progress_cb=_cb, refresh_mode="full")
                 self.after(0, self._sync_done)
             except Exception as e:
                 self.after(0, lambda err=str(e): self._sync_error(err))
@@ -3942,36 +4090,24 @@ class AuditApp(ctk.CTk):
         self.destroy()
 
     def _refresh_timesheet_cache_bg(self):
-        """Silently refresh the timesheet section of the cache after an audit.
+        """Silently refresh the last TS_REFRESH_WEEKS of timesheets after an audit.
 
         Runs in a daemon thread — does not block the UI or the audit result.
-        Skips if no reference cache exists yet (first-run scenario).
+        Uses partial mode: only the 4 most recent weeks are re-fetched to catch
+        any retroactive edits employees made during the day.  The remaining 6
+        weeks in the rolling window are preserved as-is.
+        Skips if no cache exists yet (first-run — user must run Sync Data first).
         """
         def _run():
             try:
-                cache = load_ajera_cache()
-                if not cache:
-                    return  # No cache yet — user should run Sync Data first
-                ts_start, ts_end = _timesheet_history_range()
-                t2 = login(2)
-                try:
-                    ts_list = get_timesheet_list(t2, ts_start, ts_end)
-                    ts_keys = [t["Timesheet Key"] for t in ts_list
-                               if t.get("Timesheet Key")]
-                    ts_details = get_timesheet_detail(t2, ts_keys, batch_size=10)
-                    cache["timesheet_details"]     = ts_details
-                    cache["timesheet_start"]       = str(ts_start)
-                    cache["timesheet_end"]         = str(ts_end)
-                    cache["timesheet_last_synced"] = datetime.now().isoformat()
-                    AJERA_CACHE.write_text(
-                        json.dumps(cache, indent=2, default=str), encoding="utf-8"
-                    )
-                    print(f"[CACHE] Timesheets updated: {len(ts_details)} records "
-                          f"({ts_start} → {ts_end})")
-                finally:
-                    logout(t2)
+                if not load_ajera_cache():
+                    return   # no cache yet
+                sync_ajera_cache(
+                    progress_cb=lambda m: print(f"[CACHE BG] {m}"),
+                    refresh_mode="partial",
+                )
             except Exception as exc:
-                print(f"[CACHE] Background timesheet refresh failed: {exc}")
+                print(f"[CACHE BG] Background timesheet refresh failed: {exc}")
 
         threading.Thread(target=_run, daemon=True).start()
 

@@ -65,9 +65,11 @@ PTO_KW = {"vacation", "holiday", "pto", "sick", "personal"}
 # The GUI writes ~/Documents/Luca/ajera_cache.json after every sync.
 # luca_daily.py reads it first; only calls the live API when the cache is absent
 # or older than CACHE_MAX_AGE hours (same threshold as the GUI).
-CACHE_DIR     = Path.home() / "Documents" / "Luca"
-CACHE_PATH    = CACHE_DIR / "ajera_cache.json"
-CACHE_MAX_AGE = 24  # hours
+CACHE_DIR        = Path.home() / "Documents" / "Luca"
+CACHE_PATH       = CACHE_DIR / "ajera_cache.json"
+CACHE_MAX_AGE    = 24   # hours before reference data is considered stale
+TS_HISTORY_WEEKS = 10   # total weeks to keep in the rolling timesheet cache
+TS_REFRESH_WEEKS =  4   # weeks re-fetched on each daily / partial refresh
 
 
 def load_daily_cache() -> dict:
@@ -228,6 +230,164 @@ def get_timesheet_detail(token, keys, batch_size=10):
         })
         results.extend(resp.get("Content", {}).get("Timesheets", []))
     return results
+
+
+# ── PAYROLL-WEEK & ROLLING-CACHE HELPERS ──────────────────────────────────────
+# All deterministic — no LLM involvement.
+# Ajera payroll week: Saturday (D1) through Friday (D7).
+# TimesheetDate in Ajera == the Friday that closes each payroll week.
+
+def payroll_friday_of(d) -> date:
+    """Return the Friday that closes the Sat-Fri payroll week containing d."""
+    return d + timedelta(days=(4 - d.weekday()) % 7)
+
+
+def payroll_friday(offset: int = 0) -> date:
+    """Friday of a recent payroll week.
+    offset=0 = current week, offset=-1 = last week, offset=-(n-1) = n weeks ago."""
+    return payroll_friday_of(date.today()) + timedelta(weeks=offset)
+
+
+def history_fridays(n: int = TS_HISTORY_WEEKS) -> list:
+    """Return list of the n most recent payroll-week Fridays, newest first."""
+    base = payroll_friday(0)
+    return [base + timedelta(weeks=-i) for i in range(n)]
+
+
+def _fetch_weeks_into_cache(cache: dict, fridays: list, token2, cb) -> int:
+    """Fetch one payroll week of timesheets per Friday into cache["timesheet_weeks"].
+
+    Operates inside an already-open v2 Ajera session token.
+    Returns total number of timesheet records stored across all weeks.
+    """
+    cache.setdefault("timesheet_weeks", {})
+    total = 0
+    for friday in fridays:
+        friday_str = str(friday)
+        week_start = friday - timedelta(days=6)
+        try:
+            ts_list   = get_timesheet_list(token2, week_start, friday)
+            ts_keys   = [t["Timesheet Key"] for t in ts_list
+                         if t.get("Timesheet Key")]
+            ts_detail = (get_timesheet_detail(token2, ts_keys, batch_size=10)
+                         if ts_keys else [])
+            cache["timesheet_weeks"][friday_str] = {
+                "fetched_at": datetime.now().isoformat(),
+                "timesheets": ts_detail,
+            }
+            total += len(ts_detail)
+            cb(f"    {week_start} -> {friday}: {len(ts_detail)} records")
+        except Exception as exc:
+            cb(f"    Week {friday_str}: ERROR -- {exc}")
+    return total
+
+
+def _drop_old_weeks(cache: dict, keep: int = TS_HISTORY_WEEKS) -> int:
+    """Remove weeks older than `keep` payroll weeks.  Returns count removed."""
+    weeks = cache.get("timesheet_weeks", {})
+    if not weeks:
+        return 0
+    cutoff_str = str(payroll_friday(-(keep - 1)))
+    to_drop    = [k for k in list(weeks) if k < cutoff_str]
+    for k in to_drop:
+        del weeks[k]
+    return len(to_drop)
+
+
+def ts_details_from_cache(cache: dict, start: date, end: date) -> list:
+    """Flat list of timesheet records from weeks overlapping [start, end].
+    Falls back to legacy flat 'timesheet_details' key for old cache files.
+    """
+    weeks = cache.get("timesheet_weeks", {})
+    if weeks:
+        records = []
+        for friday_str, week_data in weeks.items():
+            try:
+                friday = date.fromisoformat(friday_str)
+            except ValueError:
+                continue
+            week_sat = friday - timedelta(days=6)
+            if friday >= start and week_sat <= end:
+                records.extend(week_data.get("timesheets", []))
+        return records
+    return cache.get("timesheet_details", [])
+
+
+def weeks_covered_by_cache(cache: dict) -> tuple:
+    """Return (earliest_date, latest_date) spanned by the timesheet cache."""
+    weeks = cache.get("timesheet_weeks", {})
+    if weeks:
+        fridays = []
+        for k in weeks:
+            try:
+                fridays.append(date.fromisoformat(k))
+            except ValueError:
+                pass
+        if fridays:
+            return min(fridays) - timedelta(days=6), max(fridays)
+        return None, None
+    s = cache.get("timesheet_start")
+    e = cache.get("timesheet_end")
+    if s and e:
+        try:
+            return date.fromisoformat(s), date.fromisoformat(e)
+        except ValueError:
+            pass
+    return None, None
+
+
+def sync_timesheet_cache(refresh_mode: str = "partial") -> None:
+    """Refresh the rolling timesheet cache from Ajera.
+
+    refresh_mode:
+        "full"    -- fetch all TS_HISTORY_WEEKS weeks (10).  Used on first run
+                     or when the cache needs to be fully rebuilt.
+        "partial" -- fetch only the last TS_REFRESH_WEEKS weeks (4) to catch
+                     retroactive edits.  Used after the daily audit run.
+
+    Always enforces the rolling window: drops weeks older than TS_HISTORY_WEEKS.
+    Skips if the cache directory does not exist (GitHub Actions fresh container
+    has no persistent cache — the GUI must seed it first).
+    """
+    if not CACHE_PATH.exists():
+        print("[CACHE] No local cache found -- skipping timesheet sync "
+              "(run Sync Data from the GUI first to seed the cache).")
+        return
+
+    def _cb(msg):
+        print(f"[CACHE SYNC] {msg}")
+
+    try:
+        cache = load_daily_cache()
+        if refresh_mode == "partial":
+            cache.setdefault("timesheet_weeks", {})
+        else:
+            cache["timesheet_weeks"] = {}
+
+        n_weeks = TS_HISTORY_WEEKS if refresh_mode == "full" else TS_REFRESH_WEEKS
+        fridays = history_fridays(n_weeks)
+        _cb(f"Updating timesheet cache -- {refresh_mode} mode, {n_weeks} weeks "
+            f"({fridays[-1]} -> {fridays[0]})...")
+        t2 = login(2)
+        try:
+            fetched = _fetch_weeks_into_cache(cache, fridays, t2, _cb)
+            _cb(f"  {fetched} records refreshed")
+        finally:
+            logout(t2)
+
+        dropped = _drop_old_weeks(cache, keep=TS_HISTORY_WEEKS)
+        if dropped:
+            _cb(f"  Rolling window: dropped {dropped} week(s)")
+
+        n_cached = len(cache.get("timesheet_weeks", {}))
+        cache["ts_last_synced"]    = datetime.now().isoformat()
+        cache["ts_weeks_in_cache"] = n_cached
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        CACHE_PATH.write_text(
+            json.dumps(cache, indent=2, default=str), encoding="utf-8")
+        _cb(f"Cache saved ({n_cached} weeks in rolling window)")
+    except Exception as exc:
+        print(f"[CACHE] Timesheet sync failed: {exc}")
 
 
 # ── DATE UTILS — copied from audit_gui.py ─────────────────────────────────────
@@ -1016,6 +1176,13 @@ def main():
     flags, by_employee, by_project, prior_by_emp, emp_week_totals, _ = run_audit(
         target_date, target_date, emp_dept_map, employees=emp_list
     )
+
+    # 3a. Refresh the rolling timesheet cache (partial — last 4 weeks only).
+    #     Runs after the audit so it doesn't delay the 6 AM delivery.
+    #     Re-fetches the 4 most recent weeks to catch any retroactive employee
+    #     edits, then drops anything older than 10 weeks from the cache.
+    #     This is deterministic data maintenance — no LLM involvement.
+    sync_timesheet_cache(refresh_mode="partial")
 
     # 3. Detect employees completely missing for target_date
     active_emp_names = {
