@@ -166,12 +166,13 @@ The following Ajera data should be kept current in the background, accessible on
 
 | Data | Ajera Method | Sync frequency |
 |---|---|---|
-| Employee roster + keys | `ListEmployees` | Daily at 5:50 AM (before the 6 AM report) |
+| Employee roster + keys | `ListEmployees` + `GetEmployees` | Daily at 5:50 AM (before the 6 AM report) |
 | Projects + ProjectKeys | `ListProjects` | Daily |
 | Project phases + PhaseKeys | `GetProjects` | Daily |
 | Activity codes + ActivityKeys | `ListActivities` | Daily |
-| Companies | `ListCompanies` | Weekly |
-| Departments | `ListDepartments` | Weekly |
+| Companies | `ListCompanies` | Daily |
+| Departments | `ListDepartments` | Daily |
+| Timesheet history (10 wks) | `Timesheet/List` + `Timesheet/Detail` | On every Sync Data and every Audit run |
 
 Synced data is cached locally and used by the audit and notification engines. The cache is at `~/Documents/Luca/ajera_cache.json`.
 
@@ -181,11 +182,9 @@ Synced data is cached locally and used by the audit and notification engines. Th
 
 | Time | Task |
 |---|---|
-| 5:50 AM | Backend sync — refresh employee, project, phase, activity data from Ajera |
-| 6:00 AM | Pull prior day's timesheets → run audit → send notifications → deliver supervisor reports |
-| 8:00 AM | Auto-update documentation (.md files) |
+| 6:00 AM | Pull prior day's timesheets → run audit → send notifications → deliver supervisor reports → partial cache refresh (last 4 weeks) |
 
-All times local (Eastern). Tasks run on a cloud server — see **Infrastructure** section below.
+All times local (Eastern). Weekdays only (Mon–Fri). Runs via GitHub Actions — see **Infrastructure** section below.
 
 ---
 
@@ -199,9 +198,10 @@ GitHub Actions provides a hosted scheduler that runs Python scripts in the cloud
 
 **How it works:**
 1. The Luca automation script (`luca_daily.py`) lives in the GitHub repository
-2. A GitHub Actions workflow file (`.github/workflows/daily_run.yml`) schedules it via cron: `0 11 * * 1-5` (6 AM Eastern = 11 AM UTC, weekdays only)
+2. A GitHub Actions workflow file (`.github/workflows/luca_daily.yml`) schedules it via cron: `0 11 * * 1-5` (6 AM Eastern = 11 AM UTC, weekdays only)
 3. GitHub runs the script in a cloud container — calls Ajera API, processes timesheets, sends Gmail and WhatsApp notifications, delivers supervisor reports
-4. No machine at Carlton Edwards needs to be on
+4. After the audit, a partial cache refresh updates the last 4 weeks of timesheet data to catch retroactive edits
+5. No machine at Carlton Edwards needs to be on
 
 **Cost:** Free (GitHub Actions free tier = 2,000 minutes/month; this job runs ~2 min/day = ~44 min/month)
 
@@ -215,8 +215,8 @@ A small Linux VPS running a cron job. More control, but requires occasional main
 - Windows Task Scheduler alone → only runs when machine is on and logged in
 
 ### Setup steps (to be done once)
-- [ ] Create private GitHub repository and push current codebase
-- [ ] Add secrets to GitHub repo: `AJERA_URL`, `AJERA_USER`, `AJERA_PASS`, `GMAIL_CREDENTIALS`, `WHATSAPP_TOKEN`, `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
+- [x] ~~Create private GitHub repository and push current codebase~~ — `github.com/robcarlton007/TimeAuditInvoicePrep` (complete)
+- [ ] Add secrets to GitHub repo: `AJERA_URL`, `AJERA_USER`, `AJERA_PASS`, `ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
 - [x] ~~Write `luca_daily.py`~~ — headless audit + notification engine (complete)
 - [x] ~~Create `.github/workflows/luca_daily.yml`~~ — cron: 6 AM Eastern, weekdays (complete)
 - [ ] Test with manual trigger (`workflow_dispatch`) before enabling the live schedule
@@ -230,15 +230,26 @@ A small Linux VPS running a cron job. More control, but requires occasional main
 Luca maintains a local data layer so that core functions operate even when the Ajera API is unavailable. The API is always the primary source; local cache is the fallback.
 
 ### Cache file: `~/Documents/Luca/ajera_cache.json`
-Refreshed on every **Sync Data** click and after every audit run. Also refreshed daily at 5:50 AM before the 6 AM automation. Contains:
+Refreshed on every **Sync Data** click and after every audit run. Contains:
 - Employee roster (keys, names, departments, supervisors, roles, email, phone)
+- Employee details (role flags: `IsPrincipal`, `IsSupervisor`, `SupervisorKey`)
 - Projects (ProjectKey, ID, description, status)
 - Phases (PhaseKey, ID, description, per project)
 - Activity codes
 - Companies and departments
-- **10 weeks of full timesheet history** (updated on every Sync and every Audit run)
+- **10 weeks of full timesheet history** in a week-keyed rolling window
 
-If the API is unreachable, Luca uses the cache and notes its age. Reference data is considered stale after **24 hours**. Timesheets are always fetched live for the active audit period.
+### Rolling timesheet cache
+Timesheets are stored by payroll week (keyed by Friday date) in `cache["timesheet_weeks"]["YYYY-MM-DD"]`. This enables partial refresh without touching older weeks.
+
+| Sync mode | When used | What it fetches |
+|---|---|---|
+| **Full** (`refresh_mode="full"`) | Sync Data button, first-time population | All reference data + 10 weeks of timesheets |
+| **Partial** (`refresh_mode="partial"`) | Post-audit background refresh, daily automation | Last 4 weeks of timesheets only (reference data unchanged) |
+
+After every sync (full or partial), weeks older than 10 weeks are automatically dropped from the cache. This keeps the rolling dataset a consistent depth while ensuring retroactive employee edits within the last 4 weeks are always captured.
+
+If the API is unreachable, Luca uses the cache and notes its age. Reference data is considered stale after **24 hours**. Timesheets for the active audit period are always fetched live.
 
 ### Reference files (manually maintained, firm-specific)
 | File | Contents |
@@ -293,13 +304,13 @@ The firm's existing billing rules (currently in Excel) should be converted to `l
 
 The following firm-specific items must be maintained here because they are not available via the Ajera API:
 
-- **Supervisor–employee relationships** (Ajera has department but not explicit reporting lines)
 - **HR contact(s)**
-- **Escalation tier rules and message templates**
+- **Escalation tier rules and tone directives**
 - **Known terms / spell-check whitelist**
-- **Access role tier assignments** (unless Ajera EmployeeType maps cleanly — to be verified)
-- **Billable hour targets per employee** (if not in Ajera)
-- **Notification delivery preferences** (email vs. Teams vs. both)
+- **Billable hour targets per employee** (stored in `luca_reference.json`)
+- **Notification delivery preferences** (email vs. WhatsApp vs. both)
+
+> **Note:** Supervisor–employee relationships ARE available from Ajera via `SupervisorKey` in `GetEmployees`. Access role tiers are sourced from `IsPrincipal` and `IsSupervisor` flags. These are not maintained here.
 
 ---
 
@@ -309,7 +320,7 @@ The following firm-specific items must be maintained here because they are not a
 - [x] ~~What is the HR contact?~~ → Kim Dierking, Craft HR Consultants, hr@carlton-edwards.com
 - [x] ~~What notification system?~~ → Gmail (email) + WhatsApp
 - [ ] Should supervisor reports be delivered by email, or viewable inside Luca, or both?
-- [ ] Define message templates for Tier 1, 2, and 3 escalations.
+- [x] ~~Define message templates for Tier 1, 2, and 3 escalations.~~ → No templates. Messages are AI-written fresh by Claude each time, with tone calibrated by severity tier. See "Daily Review" section.
 - [ ] What is the hour-discrepancy threshold for collaborative cross-reference mismatch?
 - [ ] Should employees have a login to Luca, or is it admin/supervisor-only?
 - [x] ~~Should the 6 AM task require a server/always-on machine?~~ → GitHub Actions (cloud-hosted, free, zero maintenance). See Infrastructure section.

@@ -74,7 +74,16 @@
 <hr>
 
 <h2>Local Cache</h2>
-<p>Luca stores a local copy of Ajera reference data at <code>~/Documents/Luca/ajera_cache.json</code>. This cache is used for employees, projects, phases, activities, and the last <strong>10 weeks of timesheet history</strong>. It is refreshed on every Sync Data click and after every audit run. Reference data is considered stale after 24 hours.</p>
+<p>Luca stores a local copy of Ajera reference data at <code>~/Documents/Luca/ajera_cache.json</code>. This cache is used for employees, projects, phases, activities, and the last <strong>10 weeks of timesheet history</strong>. Reference data is considered stale after 24 hours.</p>
+
+<h3>Rolling Timesheet Window</h3>
+<p>Timesheets are stored by payroll week (keyed by Friday date), enabling two sync modes:</p>
+<table>
+  <tr><th>Mode</th><th>Trigger</th><th>What it fetches</th></tr>
+  <tr><td><strong>Full sync</strong></td><td>Sync Data button</td><td>All reference data + 10 weeks of timesheets</td></tr>
+  <tr><td><strong>Partial sync</strong></td><td>Background refresh after each audit</td><td>Last 4 weeks of timesheets only</td></tr>
+</table>
+<p>After every sync, weeks older than 10 weeks are automatically dropped. Partial mode ensures retroactive timesheet edits by employees are always captured without re-fetching the entire history.</p>
 <p>Most chat questions are answered instantly from the cache, with no API call needed.</p>
 
 <hr>
@@ -162,10 +171,9 @@
 <hr>
 
 <h2>Automated Daily Mode <span class="pill">roadmap</span></h2>
-<p>When live, Luca runs automatically every morning at <strong>6:00 AM Eastern</strong> via GitHub Actions (cloud-hosted, free tier):</p>
+<p>When live, Luca runs automatically every weekday morning at <strong>6:00 AM Eastern</strong> via GitHub Actions (cloud-hosted, free tier):</p>
 <ul>
-  <li>5:50 AM — Ajera reference data sync</li>
-  <li>6:00 AM — Pull prior day's timesheets → run audit → send AI-written notifications → deliver supervisor reports</li>
+  <li>6:00 AM — Pull prior day's timesheets → run audit → send AI-written notifications → deliver supervisor reports → partial cache refresh (last 4 weeks)</li>
 </ul>
 <p>No machine at Carlton Edwards needs to be on. The workflow file is at <code>.github/workflows/luca_daily.yml</code>.</p>
 
@@ -214,6 +222,11 @@
 <p><strong>Open Report button disabled</strong> — Run an audit first.</p>
 <p><strong>Ask Luca says "API key required"</strong> — Paste your Anthropic API key in the Credentials section of the sidebar.</p>
 <p><strong>Chat session lost after restart</strong> — Session is auto-saved on close to <code>luca_session.json</code>. If missing or corrupt, the session starts fresh.</p>
+
+<hr>
+
+<h2>Architecture — LLM for Reasoning Only</h2>
+<p>All data fetching, aggregation, counting, flag detection, cache management, and lookups are deterministic Python code. The LLM (Claude / Gemini) is only invoked for tasks that require reasoning, narrative generation, or natural-language interpretation — writing daily review messages, generating supervisor reports, and answering freeform chat questions. This ensures reliable, repeatable audit results regardless of LLM availability.</p>
 
 <hr>
 

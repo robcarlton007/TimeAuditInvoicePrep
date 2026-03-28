@@ -67,7 +67,16 @@ See `LUCA.md` for notification rules, escalation tiers, manager assignments, and
 
 Luca maintains a local data layer at `~/Documents/Luca/ajera_cache.json`. Reference data (employees, projects, phases, activities, companies, departments) is served from this cache and only re-fetched from Ajera when the cache is older than **24 hours** or when **Sync Data** is clicked.
 
-**Timesheet history** — The cache also stores **10 weeks** of full timesheet detail, refreshed automatically on every Sync Data and every audit run. This allows LUCA to answer trend questions and detect patterns without hitting the Ajera API every time.
+### Rolling Timesheet Window
+
+The cache stores **10 weeks** of full timesheet detail in a week-keyed rolling structure (one entry per payroll Friday). This enables two sync modes:
+
+| Mode | Trigger | What it fetches |
+|---|---|---|
+| **Full sync** | Sync Data button | All reference data + 10 weeks of timesheets |
+| **Partial sync** | Background refresh after each audit | Last 4 weeks of timesheets only (reference data untouched) |
+
+After every sync, weeks older than 10 weeks are automatically dropped. The partial mode ensures retroactive timesheet edits by employees are always captured without re-fetching the entire history.
 
 **Why this matters:** Most chat questions — *"How has Emily's hours trended over the last month?"* — are answered instantly from local data. Live API calls only happen when you query dates outside the cached window, or when running a fresh audit.
 
@@ -361,6 +370,8 @@ Auto-created on first run. Edit in any text editor to customize:
 |---|---|
 | `audit_gui.py` | Complete source — GUI, chat, audit engine, cache, session persistence |
 | `luca_daily.py` | Headless daily automation — audit + notifications (GitHub Actions) |
+| `timesheet_audit.py` | Original single-file CLI audit prototype |
+| `raw_data_dump.py` | Utility — exports raw Ajera timesheet fields to CSV |
 | `dist/Luca.exe` | Standalone Windows executable (no Python required) |
 | `luca_logo.png` | Polyhedron logo source image (Luca Pacioli / Leonardo da Vinci) |
 | `audit_icon.ico` | Windows icon — black polyhedron on white, 6 sizes (16–256px) |
@@ -369,6 +380,7 @@ Auto-created on first run. Edit in any text editor to customize:
 | `build_luca.bat` | One-click build script |
 | `.github/workflows/luca_daily.yml` | GitHub Actions cron schedule — 6 AM Eastern, weekdays |
 | `APPGUIDE.md` | This document |
+| `APPGUIDE.html` | User-facing HTML guide (bundled with Luca.exe) |
 | `LUCA.md` | Firm-specific config: managers, HR, escalation rules, notification settings |
 | `luca_knowledge.yaml` | Business rules, phase definitions, billing confusion patterns |
 
@@ -376,9 +388,28 @@ Auto-created on first run. Edit in any text editor to customize:
 
 ## Design
 
-The Luca interface uses a **black, white, and warm bronze** palette with **Segoe UI** (GUI, 14–16px body) and **Inter** (HTML reports) — clean, screen-optimized typography in the spirit of Anthropic's design language. Built with `customtkinter` for a modern native Windows feel.
+The Luca interface uses a **black, white, and warm bronze** palette with **Segoe UI** (GUI, 11–18px range; chat body and inputs at 16px) and **Inter** (HTML reports) — clean, screen-optimized typography in the spirit of Anthropic's design language. Built with `customtkinter` for a modern native Windows feel.
 
 The polyhedron mark in the header, taskbar, and desktop icon is taken directly from Leonardo da Vinci's illustration for Luca Pacioli's *De Divina Proportione* — black lines on white, rendered at 6 sizes for crisp display at every scale.
+
+---
+
+## Architecture Principle — LLM for Reasoning Only
+
+All data fetching, aggregation, counting, flag detection, cache management, and lookups are deterministic Python code. The LLM (Claude / Gemini) is only invoked for tasks that require reasoning, narrative generation, or natural-language interpretation:
+
+- Writing personalized daily review messages
+- Generating supervisor report narratives
+- Answering freeform chat questions that require judgment
+- Detecting action opportunities in conversation context
+
+This separation ensures reliable, repeatable audit results regardless of LLM availability or model behavior.
+
+---
+
+## Source Repository
+
+**GitHub:** `github.com/robcarlton007/TimeAuditInvoicePrep` (private)
 
 ---
 

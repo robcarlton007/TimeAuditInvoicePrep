@@ -307,16 +307,16 @@ scope_evaluation:
        Only flag clear mismatches (e.g., "reviewed contractor submittals" coded to SD).
 
   acceptable_overlap_examples:
-    - "Coordination with structural engineer" is normal in SD, DD, and CD
-    - "Client meeting" can occur in any phase
-    - "Code research" is relevant in SD, DD, and CD
-    - "Responding to contractor questions" in CD (bid phase) is fine
+    - Coordination with structural engineer — normal in SD, DD, and CD
+    - Client meeting — can occur in any phase
+    - Code research — relevant in SD, DD, and CD
+    - Responding to contractor questions in CD (bid phase) is fine
 
   flag_worthy_mismatches:
-    - "Schematic design / exploring floor plan options" coded to CA
-    - "Reviewing contractor pay application" coded to SD or DD
-    - "Finish selection presentation" coded to CA (should be ID or DD)
-    - "Site observation visit" coded to SD (no construction yet)
+    - Schematic design or exploring floor plan options coded to CA
+    - Reviewing contractor pay application coded to SD or DD
+    - Finish selection presentation coded to CA (should be ID or DD)
+    - Site observation visit coded to SD (no construction yet)
     - Construction management language on an architecture project code
 
 
@@ -342,6 +342,14 @@ local_cache:
 
   cache_staleness_warning_hours: 24
   timesheet_history_weeks: 10
+  timesheet_refresh_weeks: 4
+  sync_modes:
+    full: "Sync Data button — all reference data + 10 weeks of timesheets"
+    partial: "Post-audit background refresh + daily automation — last 4 weeks of timesheets only"
+  rolling_window: >
+    Timesheets are keyed by payroll Friday date in cache["timesheet_weeks"].
+    After every sync, weeks older than 10 weeks are dropped automatically.
+    Partial refresh catches retroactive employee edits within the last 4 weeks.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -382,3 +390,8 @@ llm_providers:
       about the most recent audit data using pure Python logic.
       No AI required. Instant. Works completely offline.
     status: PLANNED
+
+  architecture_principle: >
+    LLM for reasoning only. All data fetching, aggregation, counting,
+    flag detection, cache management, and lookups are deterministic Python.
+    The LLM is invoked only for narrative generation and natural-language reasoning.

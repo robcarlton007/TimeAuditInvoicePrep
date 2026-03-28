@@ -112,7 +112,8 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 AJERA_CACHE      = REPORT_DIR / "ajera_cache.json"
 SESSION_FILE     = REPORT_DIR / "luca_session.json"
 CACHE_MAX_AGE    = 24   # hours before reference cache is considered stale
-TS_HISTORY_WEEKS = 10   # weeks of timesheet history kept in local cache
+TS_HISTORY_WEEKS = 10   # total weeks to keep in the rolling timesheet cache
+TS_REFRESH_WEEKS =  4   # weeks to re-fetch on daily / post-audit partial refresh
 
 # ── COLORS — Luca / Carlton Edwards palette ───────────────────────────────────
 BG        = "#F8F6F2"   # page background — warm cream (Claude-style)
